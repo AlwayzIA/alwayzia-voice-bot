@@ -1,17 +1,33 @@
 from neo_prompt import neo_prompt
 from flask import Flask, request, Response
 from twilio.twiml.voice_response import VoiceResponse
+import openai
+import os
+from neo_prompt import neo_prompt
+from dotenv import load_dotenv
+
+load_dotenv()
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 app = Flask(__name__)
 
-@app.route("/voice", methods=['POST'])
+@app.route("/voice", methods=["POST"])
 def voice():
-    """Gère les appels entrants de Twilio"""
-    # Crée une réponse vocale
+    """Gère les appels entrants via Twilio avec OpenAI"""
+
+    user_input = "Bonjour"  # plus tard remplacé par Deepgram
+
+    response_ai = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "system", "content": neo_prompt},
+            {"role": "user", "content": user_input}
+        ]
+    )
+
+    text = response_ai['choices'][0]['message']['content']
+
     response = VoiceResponse()
-    response.say("Bonjour et bienvenue chez votre hôtel. Merci de patienter, un agent va vous assister.", language="fr-FR", voice="alice")
+    response.say(text, language="fr-FR", voice="alice")
 
     return Response(str(response), mimetype="text/xml")
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
