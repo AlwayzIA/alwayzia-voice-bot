@@ -1,4 +1,6 @@
-from neo_prompt import neo_prompt
+with open("neo_prompt.txt", "r") as f:
+    neo_prompt = f.read()
+
 from flask import Flask, request, Response
 from twilio.twiml.voice_response import VoiceResponse
 import openai
