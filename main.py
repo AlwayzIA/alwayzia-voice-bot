@@ -34,6 +34,9 @@ def voice():
 
         text = response_ai.choices[0].message.content
 
+        # 🚨 Ajoute ceci pour voir la réponse générée dans les logs Railway
+        print("Réponse GPT :", text)
+
     except Exception as e:
         print("[ERREUR GPT]", e)
         text = "Désolé, une erreur est survenue dans notre système d'assistance."
