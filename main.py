@@ -17,20 +17,28 @@ app = Flask(__name__)
 
 @app.route("/voice", methods=["POST"])
 def voice():
-    """Gère les appels entrants via Twilio + OpenAI"""
+    """Gère les appels entrants via Twilio avec OpenAI"""
 
-    user_input = "Bonjour"  # Remplacé plus tard par Deepgram
+    # Simule une entrée utilisateur pour test (à remplacer par Deepgram plus tard)
+    user_input = "Bonjour"
 
-    response_ai = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {"role": "system", "content": neo_prompt},
-            {"role": "user", "content": user_input}
-        ]
-    )
+    try:
+        # Appel à l'API OpenAI avec la nouvelle syntaxe
+        response_ai = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": neo_prompt},
+                {"role": "user", "content": user_input}
+            ]
+        )
 
-    text = response_ai["choices"][0]["message"]["content"]
+        text = response_ai["choices"][0]["message"]["content"]
 
+    except Exception as e:
+        # Si une erreur survient, message de secours
+        text = "Désolé, une erreur est survenue dans notre système d'assistance."
+
+    # Construire la réponse vocale Twilio
     response = VoiceResponse()
     response.say(text, language="fr-FR", voice="alice")
 
