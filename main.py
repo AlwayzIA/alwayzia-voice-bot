@@ -1,5 +1,5 @@
 from flask import Flask, request, Response
-from twilio.twiml.voice_response import VoiceResponse
+from twilio.twiml.voice_response import VoiceResponse, Gather
 import openai
 import os
 
@@ -23,7 +23,7 @@ def voice():
         # Simulation temporaire de l'entrée utilisateur (à remplacer par Deepgram)
         user_input = "Bonjour"
 
-        # Appel à OpenAI avec gpt-4o (nouvelle API)
+        # Appel à OpenAI avec gpt-4o
         response_ai = openai.chat.completions.create(
             model="gpt-4o",
             messages=[
@@ -33,15 +33,20 @@ def voice():
         )
 
         text = response_ai.choices[0].message.content
-
-        # 🚨 Ajoute ceci pour voir la réponse générée dans les logs Railway
         print("Réponse GPT :", text)
 
     except Exception as e:
         print("[ERREUR GPT]", e)
         text = "Désolé, une erreur est survenue dans notre système d'assistance."
 
-    response.say(text, language="fr-FR", voice="alice")
+    # Créer un bloc Gather (même si pour l’instant il ne capte rien)
+    gather = Gather(input='speech', timeout=3, language="fr-FR")
+    gather.say(text, language="fr-FR", voice="alice")
+    response.append(gather)
+
+    # Si rien n’est dit au bout de 3 secondes, on répond par défaut (optionnel)
+    response.say("Je n'ai rien entendu. N'hésitez pas à rappeler plus tard.", language="fr-FR", voice="alice")
+
     return Response(str(response), mimetype="text/xml")
 
 if __name__ == "__main__":
