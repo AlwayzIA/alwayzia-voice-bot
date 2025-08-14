@@ -1,75 +1,93 @@
-import os
-import asyncio
-import openai
-import sounddevice as sd
-import numpy as np
-from deepgram import Deepgram
-from elevenlabs import generate, play, set_api_key
+# Chargement des variables d’environnement
 from dotenv import load_dotenv
-
-# 🔐 Charger les variables d’environnement depuis le fichier .env
 load_dotenv()
 
-# 📌 Clés API (ne pas écrire en dur dans le script)
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
-ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
+import os
+import openai
+import requests
+import base64
+import tempfile
+from flask import Flask, request, jsonify
+from pydub import AudioSegment
 
-# 🔧 Configuration des clients API
-openai.api_key = OPENAI_API_KEY
-dg_client = Deepgram(DEEPGRAM_API_KEY)
-set_api_key(ELEVENLABS_API_KEY)
+# Configuration des clés API
+openai.api_key = os.getenv("OPENAI_API_KEY")
+elevenlabs_api_key = os.getenv("ELEVENLABS_API_KEY")
+deepgram_api_key = os.getenv("DEEPGRAM_API_KEY")
 
-# 🎙️ Paramètres audio
-SAMPLE_RATE = 16000
-CHANNELS = 1
+# Initialisation de Flask
+app = Flask(__name__)
 
-# 🧠 Génération de réponse avec GPT
-async def get_gpt_response(prompt):
-    response = await openai.ChatCompletion.acreate(
-        model="gpt-4",
-        messages=[
-            {"role": "system", "content": "Tu es Neo, un assistant vocal intelligent qui répond clairement aux clients des hôtels."},
-            {"role": "user", "content": prompt}
-        ]
-    )
-    return response['choices'][0]['message']['content']
+@app.route('/neo', methods=['POST'])
+def neo_voice_agent():
+    try:
+        # 1. Récupération de l’audio Twilio
+        audio_url = request.form['RecordingUrl'] + '.wav'
+        audio_data = requests.get(audio_url)
+        if audio_data.status_code != 200:
+            return jsonify({'error': 'Erreur lors du téléchargement de l’audio'}), 400
 
-# 🗣️ Génération vocale avec ElevenLabs
-def speak(text):
-    audio = generate(text=text, voice="Josh")  # Ou ta voix ElevenLabs perso
-    play(audio)
+        # 2. Sauvegarde temporaire de l'audio
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp:
+            temp.write(audio_data.content)
+            wav_path = temp.name
 
-# 🎧 Transcription avec Deepgram (live)
-async def transcribe_stream():
-    print("🎙️ Parle maintenant, j'écoute...")
+        # 3. Transcription Deepgram
+        dg_response = requests.post(
+            "https://api.deepgram.com/v1/listen",
+            headers={"Authorization": f"Token {deepgram_api_key}"},
+            files={"file": open(wav_path, "rb")},
+            data={"model": "nova", "language": "fr"}
+        )
+        transcription = dg_response.json()["results"]["channels"][0]["alternatives"][0]["transcript"]
 
-    stream = await dg_client.transcription.live(
-        {'punctuate': True, 'language': 'fr'},
-    )
+        # 4. Réponse GPT
+        gpt_response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "Tu es Neo, l’agent IA téléphonique d’un hôtel."},
+                {"role": "user", "content": transcription}
+            ]
+        )
+        reply_text = gpt_response["choices"][0]["message"]["content"]
 
-    loop = asyncio.get_event_loop()
+        # 5. Synthèse vocale ElevenLabs
+        tts_response = requests.post(
+            "https://api.elevenlabs.io/v1/text-to-speech/EXAVITQu4vr4xnSDxMaL",
+            headers={
+                "xi-api-key": elevenlabs_api_key,
+                "Content-Type": "application/json"
+            },
+            json={
+                "text": reply_text,
+                "voice_settings": {
+                    "stability": 0.4,
+                    "similarity_boost": 0.8
+                }
+            }
+        )
+        if tts_response.status_code != 200:
+            return jsonify({'error': 'Erreur ElevenLabs'}), 500
 
-    def callback(indata, frames, time, status):
-        if status:
-            print(status)
-        loop.call_soon_threadsafe(stream.send, indata.copy().tobytes())
+        # 6. Sauvegarde MP3
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_mp3:
+            temp_mp3.write(tts_response.content)
+            mp3_path = temp_mp3.name
 
-    with sd.InputStream(callback=callback, channels=CHANNELS, samplerate=SAMPLE_RATE, dtype='int16'):
-        async for msg in stream:
-            if msg.get("channel") and msg["channel"]["alternatives"]:
-                transcript = msg["channel"]["alternatives"][0].get("transcript", "")
-                if transcript:
-                    print(f"🗨️ Tu as dit : {transcript}")
-                    await stream.finish()
-                    return transcript
+        # 7. Conversion MP3 en WAV
+        final_wav = mp3_path.replace(".mp3", ".wav")
+        sound = AudioSegment.from_mp3(mp3_path)
+        sound.export(final_wav, format="wav")
 
-# 🚀 Exécution principale
-async def main():
-    transcription = await transcribe_stream()
-    gpt_reply = await get_gpt_response(transcription)
-    print(f"🤖 Neo : {gpt_reply}")
-    speak(gpt_reply)
+        # 8. Encodage pour retour API
+        with open(final_wav, "rb") as f:
+            audio_base64 = base64.b64encode(f.read()).decode("utf-8")
 
-if __name__ == "__main__":
-    asyncio.run(main())
+        return jsonify({"audio_base64": audio_base64})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Lancement
+if __name__ == '__main__':
+    app.run(host="0.0.0.0", port=5000)
