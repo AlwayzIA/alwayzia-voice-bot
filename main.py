@@ -4,12 +4,12 @@ import openai
 import os
 from dotenv import load_dotenv
 
-# Charger les variables d'environnement
+# Charger les variables d’environnement
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# Charger le prompt système depuis le fichier texte
-with open("neo_prompt.txt", "r") as f:
+# Charger le prompt système
+with open("neo_prompt.txt", "r", encoding="utf-8") as f:
     neo_prompt = f.read()
 
 # Créer l'application Flask
@@ -19,31 +19,30 @@ app = Flask(__name__)
 def voice():
     """Gère les appels entrants via Twilio avec OpenAI"""
 
-    response = VoiceResponse()
+    # Simule une entrée utilisateur (à remplacer plus tard par Deepgram)
+    user_input = "Bonjour"
 
     try:
-        # Entrée utilisateur simulée (à remplacer par Deepgram ensuite)
-        user_input = "Bonjour"
-
-        # Requête à l'API OpenAI
+        # Appel à l'API OpenAI
         response_ai = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4",  # ou "gpt-3.5-turbo" si coût ou performance
             messages=[
                 {"role": "system", "content": neo_prompt},
                 {"role": "user", "content": user_input}
             ]
         )
-
-        # Récupération de la réponse
         text = response_ai["choices"][0]["message"]["content"]
-        response.say(text, language="fr-FR", voice="alice")
 
     except Exception as e:
-        # En cas d'erreur (API, réseau, etc.)
-        print(f"Erreur GPT : {e}")
-        response.say("Une erreur est survenue avec notre assistant vocal. Merci de rappeler plus tard.", language="fr-FR", voice="alice")
+        print(f"[ERREUR GPT] {e}")
+        text = "Désolé, une erreur est survenue dans notre système d’assistance."
+
+    # Construire la réponse vocale Twilio
+    response = VoiceResponse()
+    response.say(text, language="fr-FR", voice="alice")
 
     return Response(str(response), mimetype="text/xml")
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
