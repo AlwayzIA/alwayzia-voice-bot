@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# Charger le prompt depuis le fichier texte
+# Charger le prompt système depuis le fichier texte
 with open("neo_prompt.txt", "r") as f:
     neo_prompt = f.read()
 
@@ -19,11 +19,13 @@ app = Flask(__name__)
 def voice():
     """Gère les appels entrants via Twilio avec OpenAI"""
 
-    # Simule une entrée utilisateur pour test (à remplacer par Deepgram plus tard)
-    user_input = "Bonjour"
+    response = VoiceResponse()
 
     try:
-        # Appel à l'API OpenAI avec la nouvelle syntaxe
+        # Entrée utilisateur simulée (à remplacer par Deepgram ensuite)
+        user_input = "Bonjour"
+
+        # Requête à l'API OpenAI
         response_ai = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
@@ -32,15 +34,14 @@ def voice():
             ]
         )
 
+        # Récupération de la réponse
         text = response_ai["choices"][0]["message"]["content"]
+        response.say(text, language="fr-FR", voice="alice")
 
     except Exception as e:
-        # Si une erreur survient, message de secours
-        text = "Désolé, une erreur est survenue dans notre système d'assistance."
-
-    # Construire la réponse vocale Twilio
-    response = VoiceResponse()
-    response.say(text, language="fr-FR", voice="alice")
+        # En cas d'erreur (API, réseau, etc.)
+        print(f"Erreur GPT : {e}")
+        response.say("Une erreur est survenue avec notre assistant vocal. Merci de rappeler plus tard.", language="fr-FR", voice="alice")
 
     return Response(str(response), mimetype="text/xml")
 
