@@ -27,7 +27,7 @@ def voice():
     try:
         client = openai.OpenAI(api_key=openai.api_key)
         response_ai = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4o"
             messages=[
                 {"role": "system", "content": neo_prompt},
                 {"role": "user", "content": user_input}
