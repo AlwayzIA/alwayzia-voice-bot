@@ -1,58 +1,71 @@
-# main.py
-
 import os
 import openai
+import asyncio
+import sounddevice as sd
+import numpy as np
+from deepgram import Deepgram
 from elevenlabs import generate, play, set_api_key
-import time
 
-# --- Configuration des clés API ---
-openai.api_key = "ta_clé_openai"
-set_api_key("sk_3ec4cb317fca644822bb40a09af061a0493d8f53908ad39b")  # Clé ElevenLabs
+# 🔐 Clés API stockées dans des variables d’environnement
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 
-# --- Paramètres de la voix ElevenLabs ---
-VOICE_ID = "EXAVITQu4vr4xnSDxMaL"  # Rachel (par défaut)
-MODEL = "eleven_multilingual_v2"
+# 🔧 Configuration des services
+openai.api_key = OPENAI_API_KEY
+dg_client = Deepgram(DEEPGRAM_API_KEY)
+set_api_key(ELEVENLABS_API_KEY)
 
-# --- Fonction pour générer la voix avec ElevenLabs ---
+# 🎙️ Paramètres audio
+SAMPLE_RATE = 16000
+CHANNELS = 1
+
+# 🧠 Fonction pour générer une réponse GPT
+async def get_gpt_response(prompt):
+    response = await openai.ChatCompletion.acreate(
+        model="gpt-4",
+        messages=[{"role": "system", "content": "You are Neo, an AI voice assistant."},
+                  {"role": "user", "content": prompt}]
+    )
+    return response['choices'][0]['message']['content']
+
+# 🗣️ Fonction pour générer la voix avec ElevenLabs
 def speak(text):
-    try:
-        print(f"[Neo] {text}")
-        audio = generate(
-            text=text,
-            voice=VOICE_ID,
-            model=MODEL
-        )
-        play(audio)
-    except Exception as e:
-        print("Erreur lors de la génération vocale :", e)
+    audio = generate(text=text, voice="Josh")  # ou un nom de voix personnalisé
+    play(audio)
 
-# --- Fonction pour appeler l'API GPT ---
-def ask_gpt(prompt):
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "Tu es Neo, un assistant vocal pour les hôtels, courtois et professionnel."},
-                {"role": "user", "content": prompt}
-            ]
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        return "Désolé, une erreur est survenue avec l'intelligence artificielle."
+# 🔊 Fonction de transcription avec Deepgram
+async def transcribe_stream():
+    print("🎧 Enregistrement... Parle maintenant.")
+    
+    stream = await dg_client.transcription.live(
+        {'punctuate': True, 'language': 'fr'},
+    )
 
-# --- Programme principal ---
+    loop = asyncio.get_event_loop()
+    audio_buffer = []
+
+    def callback(indata, frames, time, status):
+        if status:
+            print(status)
+        audio_data = indata.copy().tobytes()
+        loop.call_soon_threadsafe(stream.send, audio_data)
+
+    with sd.InputStream(callback=callback, channels=CHANNELS, samplerate=SAMPLE_RATE, dtype='int16'):
+        async for msg in stream:
+            if msg.get("channel") and msg["channel"]["alternatives"]:
+                transcript = msg["channel"]["alternatives"][0].get("transcript", "")
+                if transcript:
+                    print(f"🗨️ Tu as dit : {transcript}")
+                    await stream.finish()
+                    return transcript
+
+# 🚀 Lancement principal
+async def main():
+    transcription = await transcribe_stream()
+    gpt_reply = await get_gpt_response(transcription)
+    print(f"🤖 Neo : {gpt_reply}")
+    speak(gpt_reply)
+
 if __name__ == "__main__":
-    print("L'agent Neo est lancé...")
-
-    # Exemples de test
-    questions = [
-        "Quels sont les horaires d'ouverture de la réception ?",
-        "Puis-je amener mon chien à l'hôtel ?",
-        "Est-ce que le petit déjeuner est inclus dans la chambre ?"
-    ]
-
-    for q in questions:
-        print(f"\n[Client] {q}")
-        reply = ask_gpt(q)
-        speak(reply)
-        time.sleep(2)
+    asyncio.run(main())
