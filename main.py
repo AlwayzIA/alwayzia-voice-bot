@@ -26,15 +26,29 @@ def voice():
     
     try:
         client = openai.OpenAI(api_key=openai.api_key)
-        response_ai = client.chat.completions.create(
-            model="gpt-3.5-turbo",  # Changé de gpt-4 à gpt-3.5-turbo
-            messages=[
-                {"role": "system", "content": neo_prompt},
-                {"role": "user", "content": user_input}
-            ],
-            max_tokens=150,  # Limiter la réponse pour un appel vocal
-            temperature=0.7
-        )
+        
+        # Essayer différents modèles dans l'ordre de préférence
+        models_to_try = ["gpt-4o-mini", "gpt-3.5-turbo", "gpt-4", "gpt-4-turbo"]
+        
+        for model in models_to_try:
+            try:
+                print(f"[INFO] Tentative avec le modèle : {model}")
+                response_ai = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": neo_prompt},
+                        {"role": "user", "content": user_input}
+                    ],
+                    max_tokens=150,  # Limiter la réponse pour un appel vocal
+                    temperature=0.7
+                )
+                print(f"[SUCCESS] Modèle {model} fonctionne !")
+                break
+            except Exception as model_error:
+                print(f"[WARNING] Modèle {model} non disponible : {model_error}")
+                continue
+        else:
+            raise Exception("Aucun modèle disponible")
         text = response_ai.choices[0].message.content
         print(f"[INFO] Réponse IA générée : {text}")
         
