@@ -1,53 +1,58 @@
-from flask import Flask, request, Response
-from twilio.twiml.voice_response import VoiceResponse
-import openai
+# main.py
+
 import os
+import openai
+from elevenlabs import generate, play, set_api_key
+import time
 
-# Récupération de la clé API depuis Railway
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# --- Configuration des clés API ---
+openai.api_key = "ta_clé_openai"
+set_api_key("sk_3ec4cb317fca644822bb40a09af061a0493d8f53908ad39b")  # Clé ElevenLabs
 
-# Charger le prompt système Neo
-with open("neo_prompt.txt", "r") as f:
-    neo_prompt = f.read()
+# --- Paramètres de la voix ElevenLabs ---
+VOICE_ID = "EXAVITQu4vr4xnSDxMaL"  # Rachel (par défaut)
+MODEL = "eleven_multilingual_v2"
 
-# Initialiser l’app Flask
-app = Flask(__name__)
+# --- Fonction pour générer la voix avec ElevenLabs ---
+def speak(text):
+    try:
+        print(f"[Neo] {text}")
+        audio = generate(
+            text=text,
+            voice=VOICE_ID,
+            model=MODEL
+        )
+        play(audio)
+    except Exception as e:
+        print("Erreur lors de la génération vocale :", e)
 
-@app.route("/voice", methods=["POST"])
-def voice():
-    """Déclenché lors d’un appel entrant via Twilio"""
+# --- Fonction pour appeler l'API GPT ---
+def ask_gpt(prompt):
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "Tu es Neo, un assistant vocal pour les hôtels, courtois et professionnel."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        return "Désolé, une erreur est survenue avec l'intelligence artificielle."
 
-    response = VoiceResponse()
-
-    # Démarrer l’enregistrement vocal manuellement
-    response.record(
-        timeout=10,  # délai sans parole avant fin auto
-        transcribe=False,
-        max_length=60,  # durée max en secondes
-        play_beep=True,
-        recording_status_callback="/recording"
-    )
-
-    return Response(str(response), mimetype="text/xml")
-
-
-@app.route("/recording", methods=["POST"])
-def recording():
-    """Callback Twilio quand l’enregistrement est prêt"""
-
-    recording_url = request.form.get("RecordingUrl")
-
-    if not recording_url:
-        print("[ERREUR GPT/Deepgram] Aucun enregistrement trouvé dans l’appel.")
-        return Response("Aucun enregistrement trouvé", status=400)
-
-    print(f"[INFO] Enregistrement vocal disponible : {recording_url}")
-
-    # Tu pourras ici envoyer ce fichier à Deepgram pour transcription
-    # Exemple : transcription_deepgram(recording_url) → à faire ensemble
-
-    return Response("Enregistrement reçu", status=200)
-
-
+# --- Programme principal ---
 if __name__ == "__main__":
-    app.run(debug=False, host="0.0.0.0", port=8080)
+    print("L'agent Neo est lancé...")
+
+    # Exemples de test
+    questions = [
+        "Quels sont les horaires d'ouverture de la réception ?",
+        "Puis-je amener mon chien à l'hôtel ?",
+        "Est-ce que le petit déjeuner est inclus dans la chambre ?"
+    ]
+
+    for q in questions:
+        print(f"\n[Client] {q}")
+        reply = ask_gpt(q)
+        speak(reply)
+        time.sleep(2)
