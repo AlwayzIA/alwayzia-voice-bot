@@ -7,10 +7,14 @@ import openai
 import requests
 import base64
 import tempfile
+import logging
 from flask import Flask, request, jsonify
 from pydub import AudioSegment
 
-# Configuration des clés API
+# Configuration du logging
+logging.basicConfig(level=logging.INFO)
+
+# Récupération des clés API
 openai.api_key = os.getenv("OPENAI_API_KEY")
 elevenlabs_api_key = os.getenv("ELEVENLABS_API_KEY")
 deepgram_api_key = os.getenv("DEEPGRAM_API_KEY")
@@ -21,16 +25,21 @@ app = Flask(__name__)
 @app.route('/neo', methods=['POST'])
 def neo_voice_agent():
     try:
+        logging.info("➡️ Nouvelle requête reçue sur /neo")
+
         # 1. Récupération de l’audio Twilio
         audio_url = request.form['RecordingUrl'] + '.wav'
+        logging.info(f"🎙️ Téléchargement audio depuis : {audio_url}")
         audio_data = requests.get(audio_url)
         if audio_data.status_code != 200:
+            logging.error("❌ Échec du téléchargement de l'audio")
             return jsonify({'error': 'Erreur lors du téléchargement de l’audio'}), 400
 
         # 2. Sauvegarde temporaire de l'audio
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp:
             temp.write(audio_data.content)
             wav_path = temp.name
+        logging.info(f"✅ Audio sauvegardé temporairement : {wav_path}")
 
         # 3. Transcription Deepgram
         dg_response = requests.post(
@@ -39,7 +48,9 @@ def neo_voice_agent():
             files={"file": open(wav_path, "rb")},
             data={"model": "nova", "language": "fr"}
         )
+        dg_response.raise_for_status()
         transcription = dg_response.json()["results"]["channels"][0]["alternatives"][0]["transcript"]
+        logging.info(f"✍️ Transcription : {transcription}")
 
         # 4. Réponse GPT
         gpt_response = openai.ChatCompletion.create(
@@ -50,10 +61,11 @@ def neo_voice_agent():
             ]
         )
         reply_text = gpt_response["choices"][0]["message"]["content"]
+        logging.info(f"🤖 Réponse de GPT : {reply_text}")
 
         # 5. Synthèse vocale ElevenLabs
         tts_response = requests.post(
-            "https://api.elevenlabs.io/v1/text-to-speech/kENkNtk0xyzG09WW40xE",
+            "https://api.elevenlabs.io/v1/text-to-speech/kENkNtk0xyzG09WW40xE",  # ID de la voix à personnaliser
             headers={
                 "xi-api-key": elevenlabs_api_key,
                 "Content-Type": "application/json"
@@ -67,6 +79,7 @@ def neo_voice_agent():
             }
         )
         if tts_response.status_code != 200:
+            logging.error(f"❌ Erreur ElevenLabs : {tts_response.text}")
             return jsonify({'error': 'Erreur ElevenLabs'}), 500
 
         # 6. Sauvegarde MP3
@@ -78,15 +91,18 @@ def neo_voice_agent():
         final_wav = mp3_path.replace(".mp3", ".wav")
         sound = AudioSegment.from_mp3(mp3_path)
         sound.export(final_wav, format="wav")
+        logging.info("🎧 Conversion MP3 > WAV terminée")
 
-        # 8. Encodage pour retour API
+        # 8. Encodage Base64 pour retour
         with open(final_wav, "rb") as f:
             audio_base64 = base64.b64encode(f.read()).decode("utf-8")
 
+        logging.info("✅ Envoi de l’audio encodé en base64 à Twilio")
         return jsonify({"audio_base64": audio_base64})
 
     except Exception as e:
+        logging.exception("❌ Une erreur est survenue dans le traitement de la requête")
         return jsonify({"error": str(e)}), 500
 
-# ✅ IMPORTANT pour Gunicorn sur Railway
+# ⚠️ Ne surtout pas ajouter app.run() ici pour Railway
 app = app
