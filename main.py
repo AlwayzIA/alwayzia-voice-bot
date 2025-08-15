@@ -53,7 +53,7 @@ def neo_voice_agent():
 
         # 5. Synthèse vocale ElevenLabs
         tts_response = requests.post(
-            "https://api.elevenlabs.io/v1/text-to-speech/kENkNtk0xyzG09WW40xE",  # ID de la voix sélectionnée
+            "https://api.elevenlabs.io/v1/text-to-speech/kENkNtk0xyzG09WW40xE",
             headers={
                 "xi-api-key": elevenlabs_api_key,
                 "Content-Type": "application/json"
@@ -88,4 +88,5 @@ def neo_voice_agent():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Ne pas inclure app.run ici pour Railway + Gunicorn (via Procfile)
+# ✅ IMPORTANT pour Gunicorn sur Railway
+app = app
