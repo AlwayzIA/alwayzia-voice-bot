@@ -5,4 +5,5 @@ openai
 requests
 elevenlabs
 pydub
-
+ffmpeg-python
+gunicorn
