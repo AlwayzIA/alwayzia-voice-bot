@@ -53,7 +53,7 @@ def neo_voice_agent():
 
         # 5. Synthèse vocale ElevenLabs
         tts_response = requests.post(
-            "https://api.elevenlabs.io/v1/text-to-speech/EXAVITQu4vr4xnSDxMaL",
+           f"https://api.elevenlabs.io/v1/text-to-speech/kENkNtk0xyzG09WW40xE",
             headers={
                 "xi-api-key": elevenlabs_api_key,
                 "Content-Type": "application/json"
