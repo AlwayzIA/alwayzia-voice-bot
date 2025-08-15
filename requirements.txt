@@ -3,7 +3,6 @@ twilio
 python-dotenv
 openai
 requests
-elevenlabs
 pydub
 ffmpeg-python
 gunicorn
