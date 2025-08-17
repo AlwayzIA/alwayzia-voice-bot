@@ -4,49 +4,47 @@ from openai import OpenAI
 from twilio.twiml.voice_response import VoiceResponse
 import logging
 
-# Configuration logging
+# Configuration du logging
 logging.basicConfig(level=logging.INFO)
 
-# Chargement de l'API Key OpenAI
-openai_api_key = os.getenv("OPENAI_API_KEY")
-client = OpenAI(api_key=openai_api_key)
+# Initialisation client OpenAI
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Initialisation de Flask
 app = Flask(__name__)
 
 @app.route("/neo", methods=["POST"])
 def neo_voice():
-    """Endpoint Twilio Voice → déclenchement de Neo"""
+    """Réponse de Neo à un appel Twilio"""
     try:
-        # Transcription automatique de Twilio (optionnel)
         user_input = request.form.get("SpeechResult") or request.form.get("Digits") or "Bonjour"
 
-        logging.info(f"Message reçu : {user_input}")
+        logging.info(f"Texte reçu depuis Twilio : {user_input}")
 
-        # Envoi à l’API OpenAI (GPT-4-turbo)
+        # Appel à l'API OpenAI
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "Tu es Neo, un assistant vocal pour un hôtel. Sois clair, utile et poli."},
+                {"role": "system", "content": "Tu es Neo, un assistant vocal pour les hôtels. Réponds de façon naturelle, professionnelle et utile."},
                 {"role": "user", "content": user_input}
             ]
         )
 
-        assistant_reply = response.choices[0].message.content.strip()
-        logging.info(f"Réponse de Neo : {assistant_reply}")
+        reply = response.choices[0].message.content.strip()
+        logging.info(f"Réponse générée par Neo : {reply}")
 
-        # Réponse vocale avec Twilio (voix par défaut Alice)
+        # Réponse vocale avec Twilio
         twilio_response = VoiceResponse()
-        twilio_response.say(assistant_reply, voice="alice", language="fr-FR")
+        twilio_response.say(reply, voice="alice", language="fr-FR")
 
         return Response(str(twilio_response), mimetype="application/xml")
 
     except Exception as e:
-        logging.error(f"Erreur : {e}")
+        logging.error(f"Erreur pendant le traitement : {e}")
         error_response = VoiceResponse()
-        error_response.say("Désolé, une erreur est survenue.", voice="alice", language="fr-FR")
+        error_response.say("Une erreur est survenue. Merci de rappeler plus tard.", voice="alice", language="fr-FR")
         return Response(str(error_response), mimetype="application/xml")
 
 @app.route("/", methods=["GET"])
 def home():
-    return "Neo Voice Agent is live!", 200
+    return "Neo Voice Agent is up and running 🚀", 200
