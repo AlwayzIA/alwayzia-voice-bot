@@ -45,7 +45,7 @@ def process_recording():
         print("📥 Traitement de l'enregistrement")
 
         # Télécharger l'enregistrement depuis Twilio avec authentification
-        recording_url = request.form["RecordingUrl"] + ".wav"
+        recording_url = request.form["RecordingUrl"]
         print(f"📥 Téléchargement depuis: {recording_url}")
 
         TWILIO_SID = os.getenv("TWILIO_ACCOUNT_SID")
