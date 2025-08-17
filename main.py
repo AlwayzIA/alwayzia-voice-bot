@@ -12,8 +12,8 @@ import requests
 import base64
 import tempfile
 import logging
+import subprocess
 from flask import Flask, request, jsonify
-from pydub import AudioSegment
 
 # ──────────────── Configuration logging ────────────────
 logging.basicConfig(level=logging.INFO)
@@ -26,6 +26,21 @@ deepgram_api_key = os.getenv("DEEPGRAM_API_KEY")
 # ──────────────── Initialisation de Flask ────────────────
 app = Flask(__name__)
 
+def convert_mp3_to_wav_ffmpeg(mp3_path, wav_path):
+    """Convertit MP3 vers WAV en utilisant ffmpeg directement"""
+    try:
+        subprocess.run([
+            'ffmpeg', '-i', mp3_path, '-ar', '8000', '-ac', '1', 
+            '-acodec', 'pcm_mulaw', '-f', 'wav', wav_path, '-y'
+        ], check=True, capture_output=True)
+        return True
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Erreur ffmpeg: {e}")
+        return False
+    except FileNotFoundError:
+        logging.error("ffmpeg non trouvé sur le système")
+        return False
+
 @app.route('/neo', methods=['POST'])
 def neo_voice_agent():
     try:
@@ -36,8 +51,8 @@ def neo_voice_agent():
         logging.info(f"🔊 Téléchargement de l'audio depuis : {audio_url}")
         audio_data = requests.get(audio_url)
         if audio_data.status_code != 200:
-            logging.error("❌ Erreur de téléchargement de l’audio Twilio")
-            return jsonify({'error': 'Erreur lors du téléchargement de l’audio'}), 400
+            logging.error("❌ Erreur de téléchargement de l'audio Twilio")
+            return jsonify({'error': 'Erreur lors du téléchargement de l\'audio'}), 400
 
         # 2. Sauvegarde temporaire du fichier audio
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp:
@@ -46,24 +61,33 @@ def neo_voice_agent():
         logging.info("✅ Audio sauvegardé localement pour transcription")
 
         # 3. Transcription Deepgram
-        dg_response = requests.post(
-            "https://api.deepgram.com/v1/listen",
-            headers={"Authorization": f"Token {deepgram_api_key}"},
-            files={"file": open(wav_path, "rb")},
-            data={"model": "nova", "language": "fr"}
-        )
+        with open(wav_path, "rb") as audio_file:
+            dg_response = requests.post(
+                "https://api.deepgram.com/v1/listen",
+                headers={"Authorization": f"Token {deepgram_api_key}"},
+                files={"file": audio_file},
+                data={"model": "nova", "language": "fr"}
+            )
+        
+        if dg_response.status_code != 200:
+            logging.error(f"Erreur Deepgram: {dg_response.text}")
+            return jsonify({'error': 'Erreur Deepgram'}), 500
+            
         transcription = dg_response.json()["results"]["channels"][0]["alternatives"][0]["transcript"]
         logging.info(f"📝 Transcription : {transcription}")
 
-        # 4. Appel à OpenAI (GPT-4)
-        gpt_response = openai.ChatCompletion.create(
-            model="gpt-4",
+        # 4. Appel à OpenAI (GPT-4) - VERSION CORRIGÉE
+        client = openai.OpenAI(api_key=openai.api_key)
+        gpt_response = client.chat.completions.create(
+            model="gpt-4o-mini",  # Modèle optimisé pour votre clé sk-proj-
             messages=[
-                {"role": "system", "content": "Tu es Neo, l’agent IA téléphonique d’un hôtel."},
+                {"role": "system", "content": "Tu es Neo, l'agent IA téléphonique d'un hôtel. Réponds de manière concise et professionnelle."},
                 {"role": "user", "content": transcription}
-            ]
+            ],
+            max_tokens=150,
+            temperature=0.7
         )
-        reply_text = gpt_response["choices"][0]["message"]["content"]
+        reply_text = gpt_response.choices[0].message.content
         logging.info(f"🤖 Réponse GPT : {reply_text}")
 
         # 5. Synthèse vocale avec ElevenLabs
@@ -82,7 +106,7 @@ def neo_voice_agent():
             }
         )
         if tts_response.status_code != 200:
-            logging.error("❌ Erreur ElevenLabs")
+            logging.error(f"❌ Erreur ElevenLabs: {tts_response.text}")
             return jsonify({'error': 'Erreur ElevenLabs'}), 500
 
         # 6. Sauvegarde du MP3 temporaire
@@ -90,18 +114,37 @@ def neo_voice_agent():
             temp_mp3.write(tts_response.content)
             mp3_path = temp_mp3.name
 
-        # 7. Conversion MP3 ➝ WAV (Twilio nécessite WAV)
-        final_wav = mp3_path.replace(".mp3", ".wav")
-        sound = AudioSegment.from_mp3(mp3_path)
-        sound.export(final_wav, format="wav")
+        # 7. Conversion MP3 ➝ WAV avec ffmpeg direct (SANS pydub)
+        final_wav = mp3_path.replace(".mp3", "_final.wav")
+        if not convert_mp3_to_wav_ffmpeg(mp3_path, final_wav):
+            logging.error("❌ Échec conversion audio")
+            return jsonify({'error': 'Erreur conversion audio'}), 500
+        
         logging.info("🎵 Conversion en WAV terminée")
 
         # 8. Encodage base64 pour retour API
         with open(final_wav, "rb") as f:
             audio_base64 = base64.b64encode(f.read()).decode("utf-8")
 
+        # 9. Nettoyage des fichiers temporaires
+        try:
+            os.unlink(wav_path)
+            os.unlink(mp3_path) 
+            os.unlink(final_wav)
+        except:
+            pass
+
         return jsonify({"audio_base64": audio_base64})
 
     except Exception as e:
         logging.exception("⚠️ Exception dans le traitement de la requête")
         return jsonify({"error": str(e)}), 500
+
+@app.route('/', methods=['GET'])
+def health_check():
+    """Route de vérification de santé"""
+    return "Neo Voice Agent is running! 🚀"
+
+if __name__ == "__main__":
+    logging.info("🚀 Démarrage de Neo...")
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
