@@ -1,38 +1,44 @@
 import os
 from flask import Flask, request
-from openai import OpenAI
+from twilio.twiml.voice_response import VoiceResponse
+import openai
 from dotenv import load_dotenv
 
+# Charger les variables d'environnement
 load_dotenv()
+
+# Configurer la clé API OpenAI
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 app = Flask(__name__)
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-@app.route("/neo", methods=["POST"])
-def chat():
-    data = request.json
-    user_input = data.get("user_input", "")
-    prompt_file = os.getenv("PROMPT_FILE", "neo_prompt.txt")
-
+@app.route("/voice", methods=["POST"])
+def voice():
+    """Répond à un appel avec un message généré par l'IA."""
     try:
-        with open(prompt_file, "r") as f:
-            system_prompt = f.read()
-    except FileNotFoundError:
-        return {"error": "Prompt file not found."}, 500
+        # Extraire le message vocal de l'utilisateur depuis la transcription Twilio
+        user_input = request.form.get("SpeechResult", "Bonjour")
 
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4",
+        # Appeler l’API OpenAI
+        completion = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": "Tu es un assistant vocal pour un hôtel."},
                 {"role": "user", "content": user_input}
             ]
         )
-        answer = response.choices[0].message.content
-        return {"response": answer}
+
+        ai_response = completion.choices[0].message["content"]
+
+        # Répondre à l'appel avec la réponse générée
+        response = VoiceResponse()
+        response.say(ai_response, voice='alice', language='fr-FR')
+        return str(response)
     except Exception as e:
-        return {"error": str(e)}, 500
+        response = VoiceResponse()
+        response.say("Une erreur est survenue. Merci de rappeler plus tard.", voice='alice', language='fr-FR')
+        print("Erreur:", e)
+        return str(response)
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+    app.run(debug=False, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
