@@ -7,7 +7,7 @@ from typing import Optional, Tuple
 
 import openai
 import requests
-from flask import Flask, request, jsonify, Response
+from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 
 # ==================== Configuration ====================
@@ -16,10 +16,9 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configuration OpenAI
+# Configuration OpenAI (ancienne version)
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# Configuration
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
 ELEVENLABS_VOICE_ID = "kENkNtk0xyzG09WW40xE"
@@ -68,7 +67,7 @@ class ChatService:
     def generate_response(user_input: str) -> Optional[str]:
         try:
             response = openai.ChatCompletion.create(
-                model="gpt-4o",
+                model="gpt-4",
                 messages=[
                     {"role": "system", "content": "Tu es Neo, l'assistant vocal IA d'AlwayzIA. Tu es professionnel, concis et serviable. Tes réponses sont claires et adaptées au contexte téléphonique. Limite tes réponses à 2-3 phrases maximum."},
                     {"role": "user", "content": user_input}
@@ -76,7 +75,7 @@ class ChatService:
                 max_tokens=150,
                 temperature=0.7
             )
-            return response.choices[0].message["content"]
+            return response.choices[0]["message"]["content"]
         except Exception as e:
             logger.error(f"Erreur génération réponse : {e}")
             return None
@@ -140,6 +139,7 @@ class AudioPipeline:
             with open(final_wav, "rb") as f:
                 return base64.b64encode(f.read()).decode("utf-8"), None
         except Exception as e:
+            logger.error(f"Erreur pipeline : {e}")
             return None, str(e)
         finally:
             for file in temp_files:
@@ -161,3 +161,9 @@ def neo():
     audio_b64, error = AudioPipeline.process(f"{recording_url}.wav")
     if error:
         return jsonify({"error": error}), 500
+
+    return jsonify({"audio_base64": audio_b64})
+
+# Pour exécuter en local ou sur Railway
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=PORT)
