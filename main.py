@@ -1,44 +1,52 @@
 import os
-from flask import Flask, request
+from flask import Flask, request, Response
+from openai import OpenAI
 from twilio.twiml.voice_response import VoiceResponse
-import openai
-from dotenv import load_dotenv
+import logging
 
-# Charger les variables d'environnement
-load_dotenv()
+# Configuration logging
+logging.basicConfig(level=logging.INFO)
 
-# Configurer la clé API OpenAI
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Chargement de l'API Key OpenAI
+openai_api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=openai_api_key)
 
+# Initialisation de Flask
 app = Flask(__name__)
 
-@app.route("/voice", methods=["POST"])
-def voice():
-    """Répond à un appel avec un message généré par l'IA."""
+@app.route("/neo", methods=["POST"])
+def neo_voice():
+    """Endpoint Twilio Voice → déclenchement de Neo"""
     try:
-        # Extraire le message vocal de l'utilisateur depuis la transcription Twilio
-        user_input = request.form.get("SpeechResult", "Bonjour")
+        # Transcription automatique de Twilio (optionnel)
+        user_input = request.form.get("SpeechResult") or request.form.get("Digits") or "Bonjour"
 
-        # Appeler l’API OpenAI
-        completion = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+        logging.info(f"Message reçu : {user_input}")
+
+        # Envoi à l’API OpenAI (GPT-4-turbo)
+        response = client.chat.completions.create(
+            model="gpt-4",
             messages=[
-                {"role": "system", "content": "Tu es un assistant vocal pour un hôtel."},
+                {"role": "system", "content": "Tu es Neo, un assistant vocal pour un hôtel. Sois clair, utile et poli."},
                 {"role": "user", "content": user_input}
             ]
         )
 
-        ai_response = completion.choices[0].message["content"]
+        assistant_reply = response.choices[0].message.content.strip()
+        logging.info(f"Réponse de Neo : {assistant_reply}")
 
-        # Répondre à l'appel avec la réponse générée
-        response = VoiceResponse()
-        response.say(ai_response, voice='alice', language='fr-FR')
-        return str(response)
+        # Réponse vocale avec Twilio (voix par défaut Alice)
+        twilio_response = VoiceResponse()
+        twilio_response.say(assistant_reply, voice="alice", language="fr-FR")
+
+        return Response(str(twilio_response), mimetype="application/xml")
+
     except Exception as e:
-        response = VoiceResponse()
-        response.say("Une erreur est survenue. Merci de rappeler plus tard.", voice='alice', language='fr-FR')
-        print("Erreur:", e)
-        return str(response)
+        logging.error(f"Erreur : {e}")
+        error_response = VoiceResponse()
+        error_response.say("Désolé, une erreur est survenue.", voice="alice", language="fr-FR")
+        return Response(str(error_response), mimetype="application/xml")
 
-if __name__ == "__main__":
-    app.run(debug=False, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+@app.route("/", methods=["GET"])
+def home():
+    return "Neo Voice Agent is live!", 200
