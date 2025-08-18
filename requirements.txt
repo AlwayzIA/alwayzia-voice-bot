@@ -4,6 +4,6 @@ requests==2.31.0
 twilio==8.10.0
 deepgram-sdk==3.2.7
 gunicorn==22.0.0
-httpx==0.25.0
+httpx>=0.25.2,<1.0
 gspread==5.12.0
 google-auth==2.23.4
