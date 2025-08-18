@@ -5,7 +5,6 @@ from twilio.twiml.voice_response import VoiceResponse
 from openai import OpenAI
 from dotenv import load_dotenv
 import uuid
-import httpx
 
 # Charger les variables d'environnement
 load_dotenv()
@@ -44,28 +43,30 @@ def process_recording():
         print("🔔 Nouvel appel reçu")
         print("📥 Traitement de l'enregistrement")
 
-        # Télécharger l'enregistrement depuis Twilio avec authentification
-        recording_url = request.form["RecordingUrl"] + "/media"
-        print(f"📥 Téléchargement depuis: {recording_url}")
+        # Récupération de l'URL fournie par Twilio
+        recording_url = request.form["RecordingUrl"]
+        print(f"🔗 URL brute retournée par Twilio : {recording_url}")
 
+        # Authentification Twilio
         TWILIO_SID = os.getenv("TWILIO_ACCOUNT_SID")
         TWILIO_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 
+        # Télécharger l'enregistrement en utilisant l'authentification HTTP Basic
         audio_response = requests.get(recording_url, auth=(TWILIO_SID, TWILIO_TOKEN))
 
         if audio_response.status_code != 200:
             print(f"❌ Erreur HTTP: {audio_response.status_code}")
-            return "Erreur dans process_recording"
+            return "Erreur lors du téléchargement", 500
 
-        # Sauvegarder temporairement le fichier audio
+        # Sauvegarder le fichier audio temporairement
         filename = f"/tmp/{uuid.uuid4()}.wav"
         with open(filename, "wb") as f:
             f.write(audio_response.content)
 
         print(f"✅ Audio sauvegardé localement : {filename}")
 
-        # Traitement avec OpenAI Whisper (ou autre si implémenté)
-        transcript = "Transcription simulée..."  # À remplacer par un appel réel
+        # Transcription simulée
+        transcript = "Transcription simulée..."  # À remplacer par Whisper ou autre
         print(f"📝 Transcription : {transcript}")
 
         # Répondre à l'appelant
@@ -74,7 +75,7 @@ def process_recording():
         return str(response)
 
     except Exception as e:
-        print(f"ERROR:main:Erreur dans process_recording: {str(e)}")
+        print(f"🚨 ERREUR : {str(e)}")
         return "Erreur interne", 500
 
 # Lancement de l'application
