@@ -5,30 +5,18 @@ from twilio.twiml.voice_response import VoiceResponse
 from openai import OpenAI
 from dotenv import load_dotenv
 import uuid
+import time  # ← ajout pour temporisation
 
 # Charger les variables d'environnement
 load_dotenv()
 
-# Configuration de l'application Flask
 app = Flask(__name__)
-
-# Initialisation de l'API OpenAI
 openai = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# Définir un endpoint de santé
 @app.route("/status", methods=["GET"])
 def status():
-    return jsonify({
-        "service": "Neo Voice Agent",
-        "status": "operational",
-        "configs": {
-            "openai": True,
-            "elevenlabs": True,
-            "deepgram": True
-        }
-    })
+    return jsonify({"service": "Neo Voice Agent", "status": "operational"})
 
-# Point d'entrée pour les appels vocaux
 @app.route("/voice", methods=["POST"])
 def voice():
     response = VoiceResponse()
@@ -36,29 +24,28 @@ def voice():
     response.record(maxLength=10, action="/process_recording", method="POST")
     return str(response)
 
-# Traitement de l'enregistrement vocal
 @app.route("/process_recording", methods=["POST"])
 def process_recording():
     try:
         print("🔔 Nouvel appel reçu")
         print("📥 Traitement de l'enregistrement")
 
-        # Récupération de l'URL fournie par Twilio
         recording_url = request.form["RecordingUrl"]
         print(f"🔗 URL brute retournée par Twilio : {recording_url}")
 
-        # Authentification Twilio
         TWILIO_SID = os.getenv("TWILIO_ACCOUNT_SID")
         TWILIO_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 
-        # Télécharger l'enregistrement en utilisant l'authentification HTTP Basic
+        # 🔁 Attendre 1 seconde pour que Twilio finalise l’upload du fichier
+        time.sleep(1)
+
+        # Télécharger l'enregistrement avec authentification
         audio_response = requests.get(recording_url, auth=(TWILIO_SID, TWILIO_TOKEN))
 
         if audio_response.status_code != 200:
             print(f"❌ Erreur HTTP: {audio_response.status_code}")
             return "Erreur lors du téléchargement", 500
 
-        # Sauvegarder le fichier audio temporairement
         filename = f"/tmp/{uuid.uuid4()}.wav"
         with open(filename, "wb") as f:
             f.write(audio_response.content)
@@ -66,10 +53,9 @@ def process_recording():
         print(f"✅ Audio sauvegardé localement : {filename}")
 
         # Transcription simulée
-        transcript = "Transcription simulée..."  # À remplacer par Whisper ou autre
+        transcript = "Transcription simulée..."
         print(f"📝 Transcription : {transcript}")
 
-        # Répondre à l'appelant
         response = VoiceResponse()
         response.say(f"Vous avez dit : {transcript}", language="fr-FR", voice="Polly.Celine")
         return str(response)
@@ -78,6 +64,5 @@ def process_recording():
         print(f"🚨 ERREUR : {str(e)}")
         return "Erreur interne", 500
 
-# Lancement de l'application
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
