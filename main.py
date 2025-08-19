@@ -170,7 +170,20 @@ def voice():
         
         # Si pas de réponse après timeout
         response.say("Je n'ai pas bien entendu. Pouvez-vous répéter s'il vous plaît ?", language="fr-FR", voice="Polly.Celine")
-        response.redirect("/voice")  # Recommencer
+        
+        # Donner une autre chance SANS se re-présenter
+        gather_retry = response.gather(
+            input="speech",
+            language="fr-FR",
+            speech_timeout="auto",
+            timeout=15,
+            action="/conversation",
+            method="POST"
+        )
+        
+        # Pas de message dans le gather, juste écouter
+        # Si toujours pas de réponse, terminer poliment
+        response.say("Je vous remercie pour votre appel. N'hésitez pas à nous rappeler. Au revoir !", language="fr-FR", voice="Polly.Celine")
         
         logging.info("✅ Réponse TwiML CONVERSATION générée - Neo")
         return str(response)
@@ -239,19 +252,19 @@ def conversation():
             response.say("Merci infiniment pour votre appel. Très belle journée à vous !", language="fr-FR", voice="Polly.Celine")
             
         else:
-            # Pas compris, redemander avec timeout normal
+            # Pas compris, redemander SANS se re-présenter
             gather = response.gather(
                 input="speech",
                 language="fr-FR",
                 speech_timeout="auto", 
-                timeout=12,
+                timeout=15,
                 action="/conversation",
                 method="POST"
             )
             
             gather.say("Je n'ai pas bien saisi votre demande. Pouvez-vous reformuler s'il vous plaît ?", language="fr-FR", voice="Polly.Celine")
             
-            # Fin après 2 échecs
+            # Si toujours pas compris, terminer poliment
             response.say("Je vous remercie pour votre appel. Au revoir !", language="fr-FR", voice="Polly.Celine")
         
         return str(response)
@@ -548,6 +561,9 @@ def generate_gpt4_response(transcript, caller_number="", hotel_config=None):
         
         system_prompt = f"""Tu es un assistant téléphonique intelligent pour le {hotel_config['nom_hotel']} en {hotel_config['pays']}.
 
+Tu t'es DÉJÀ présenté au début de l'appel comme {hotel_config['voix_prenom']}. 
+NE TE PRÉSENTE PLUS JAMAIS - la conversation a déjà commencé.
+
 INFORMATIONS DE L'ÉTABLISSEMENT :
 - Nom : {hotel_config['nom_hotel']}
 - Horaires réception : {hotel_config['horaires_reception']}
@@ -557,7 +573,6 @@ INFORMATIONS DE L'ÉTABLISSEMENT :
 - Services disponibles : {services_list}
 - Types de chambres : {chambres_list}
 - Ton à adopter : {hotel_config['ton_vocal']}
-- Voix IA : {hotel_config['voix_prenom']}
 
 RÈGLES CRITIQUES :
 - Tu ne communiques QUE les informations listées ci-dessus
@@ -565,6 +580,7 @@ RÈGLES CRITIQUES :
 - Tu collectes : nom, prénom, téléphone, email, demande, moyen de recontact
 - Tu vouvoies TOUJOURS le client
 - Ton {hotel_config['ton_vocal']} et professionnel
+- NE TE PRÉSENTE PLUS - c'est déjà fait !
 
 GESTION DES INFORMATIONS MANQUANTES :
 Si une information n'est pas disponible :
@@ -574,8 +590,9 @@ STYLE :
 - Réponses concises (2-3 phrases max)
 - Patience et bienveillance
 - Représente l'excellence du {hotel_config['nom_hotel']}
+- Conversation naturelle SANS répéter l'accueil
 
-Tu travailles pour le {hotel_config['nom_hotel']} et tu incarnes leurs valeurs."""
+Tu es EN COURS de conversation avec le client."""
         
         # Appel à l'API OpenAI GPT-4 (ancienne syntaxe)
         response = openai.ChatCompletion.create(
