@@ -220,8 +220,15 @@ def process_recording():
         hotel_config = get_hotel_config(called_number)
         logging.info(f"🏨 Traitement pour: {hotel_config['nom_hotel']}")
         
-        # Construction de l'URL WAV pour Deepgram avec authentification
-        wav_url = f"{recording_url}.wav"
+        # Construction de l'URL correcte pour télécharger l'audio
+        # Twilio donne l'URL de métadonnées, il faut construire l'URL du fichier WAV
+        if recording_url.endswith('.json'):
+            # Si l'URL se termine par .json, remplacer par .wav
+            wav_url = recording_url.replace('.json', '.wav')
+        else:
+            # Sinon, ajouter .wav à la fin
+            wav_url = f"{recording_url}.wav"
+        
         logging.info(f"🎯 URL audio à transcrire: {wav_url}")
         
         # Transcription avec Deepgram (avec téléchargement et auth Twilio)
@@ -270,6 +277,10 @@ def process_recording():
 def transcribe_with_deepgram(wav_url):
     """Transcrit l'audio avec Deepgram depuis une URL avec authentification Twilio"""
     try:
+        # Attendre quelques secondes que l'enregistrement soit disponible
+        import time
+        time.sleep(3)
+        
         # Téléchargement du fichier audio avec authentification Twilio
         logging.info(f"🔗 Téléchargement depuis: {wav_url}")
         
@@ -279,12 +290,20 @@ def transcribe_with_deepgram(wav_url):
             timeout=30
         )
         
+        logging.info(f"📡 Status téléchargement: {response.status_code}")
+        
         if response.status_code != 200:
             logging.error(f"❌ Erreur téléchargement: {response.status_code}")
+            logging.error(f"❌ Contenu réponse: {response.text[:200]}")
             return None
         
         audio_data = response.content
         logging.info(f"✅ Audio téléchargé: {len(audio_data)} bytes")
+        
+        # Vérification que nous avons bien des données audio
+        if len(audio_data) < 1000:  # Fichier audio trop petit
+            logging.error(f"❌ Fichier audio trop petit: {len(audio_data)} bytes")
+            return None
         
         # Configuration pour la transcription en français
         options = PrerecordedOptions(
