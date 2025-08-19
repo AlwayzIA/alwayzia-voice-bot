@@ -7,7 +7,7 @@ import json
 from flask import Flask, request, jsonify
 from twilio.twiml.voice_response import VoiceResponse
 from deepgram import DeepgramClient, PrerecordedOptions, FileSource
-from openai import OpenAI
+import openai
 from dotenv import load_dotenv
 import gspread
 from google.oauth2.service_account import Credentials
@@ -28,7 +28,9 @@ PORT = int(os.getenv("PORT", 8080))
 
 # Initialisation des clients externes
 deepgram = DeepgramClient(DEEPGRAM_API_KEY)
-openai_client = OpenAI(api_key=OPENAI_API_KEY)
+
+# Configuration OpenAI (ancienne syntaxe stable)
+openai.api_key = OPENAI_API_KEY
 
 # Initialisation de Flask
 app = Flask(__name__)
@@ -303,6 +305,11 @@ def generate_gpt4_response(transcript, caller_number="", hotel_config=None):
         if not hotel_config:
             hotel_config = get_default_hotel_config()
         
+        # Vérification de la clé OpenAI
+        if not OPENAI_API_KEY:
+            logging.warning("⚠️ OpenAI API key manquante, utilisation de réponse par défaut")
+            return f"Merci pour votre message. Notre équipe du {hotel_config['nom_hotel']} a bien pris note de votre demande et vous rappellera dans les plus brefs délais."
+        
         # Construction du prompt système personnalisé pour cet hôtel
         services_list = ", ".join(hotel_config.get('services', []))
         chambres_list = ", ".join(hotel_config.get('chambres_types', []))
@@ -338,8 +345,8 @@ STYLE :
 
 Tu travailles pour le {hotel_config['nom_hotel']} et tu incarnes leurs valeurs."""
         
-        # Appel à l'API OpenAI GPT-4
-        response = openai_client.chat.completions.create(
+        # Appel à l'API OpenAI GPT-4 (ancienne syntaxe)
+        response = openai.ChatCompletion.create(
             model="gpt-4",
             messages=[
                 {"role": "system", "content": system_prompt},
