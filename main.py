@@ -220,11 +220,11 @@ def process_recording():
         hotel_config = get_hotel_config(called_number)
         logging.info(f"🏨 Traitement pour: {hotel_config['nom_hotel']}")
         
-        # Construction de l'URL WAV pour Deepgram
+        # Construction de l'URL WAV pour Deepgram avec authentification
         wav_url = f"{recording_url}.wav"
-        logging.info(f"🎯 URL utilisée pour la transcription : {wav_url}")
+        logging.info(f"🎯 URL audio à transcrire: {wav_url}")
         
-        # Transcription avec Deepgram
+        # Transcription avec Deepgram (avec téléchargement et auth Twilio)
         logging.info("🎤 Neo transcrit avec Deepgram...")
         transcript = transcribe_with_deepgram(wav_url)
         
@@ -268,8 +268,24 @@ def process_recording():
         return str(response)
 
 def transcribe_with_deepgram(wav_url):
-    """Transcrit l'audio avec Deepgram depuis une URL"""
+    """Transcrit l'audio avec Deepgram depuis une URL avec authentification Twilio"""
     try:
+        # Téléchargement du fichier audio avec authentification Twilio
+        logging.info(f"🔗 Téléchargement depuis: {wav_url}")
+        
+        response = requests.get(
+            wav_url,
+            auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN),
+            timeout=30
+        )
+        
+        if response.status_code != 200:
+            logging.error(f"❌ Erreur téléchargement: {response.status_code}")
+            return None
+        
+        audio_data = response.content
+        logging.info(f"✅ Audio téléchargé: {len(audio_data)} bytes")
+        
         # Configuration pour la transcription en français
         options = PrerecordedOptions(
             model="nova-2",
@@ -277,19 +293,21 @@ def transcribe_with_deepgram(wav_url):
             smart_format=True,
             punctuate=True,
             paragraphs=True,
-            utterances=True
+            utterances=True,
+            encoding="mulaw",  # Important: Twilio utilise mulaw
+            sample_rate=8000   # Important: Twilio utilise 8000Hz
         )
         
-        # Source depuis URL
-        source: FileSource = {"url": wav_url}
+        # Transcription avec les données audio téléchargées
+        source: FileSource = {"buffer": audio_data, "mimetype": "audio/wav"}
         
-        # Transcription
-        response = deepgram.listen.prerecorded.v("1").transcribe_url(source, options)
+        response = deepgram.listen.prerecorded.v("1").transcribe_file(source, options)
         
         # Extraction du texte
         transcript = response["results"]["channels"][0]["alternatives"][0]["transcript"]
         
         if transcript and transcript.strip():
+            logging.info(f"✅ Transcription réussie: {transcript}")
             return transcript.strip()
         else:
             logging.warning("⚠️ Transcription vide")
