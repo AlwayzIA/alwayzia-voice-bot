@@ -165,8 +165,8 @@ def voice():
             method="POST"
         )
         
-        # Message d'accueil dans le Gather
-        gather.say(welcome_message, language="fr-FR", voice="Polly.Celine")
+        # Message d'accueil dans le Gather avec meilleure voix
+        gather.say(welcome_message, language="fr-FR", voice="Polly.Lea-Neural")
         
         # Si pas de réponse après timeout
         response.say("Je n'ai pas bien entendu. Pouvez-vous répéter s'il vous plaît ?", language="fr-FR", voice="Polly.Celine")
@@ -241,8 +241,12 @@ def conversation():
                 method="POST"
             )
             
-            # Répondre ET continuer à écouter
-            gather.say(ai_response, language="fr-FR", voice="Polly.Celine")
+            # Répondre ET continuer à écouter avec ElevenLabs
+            if ELEVENLABS_API_KEY:
+                # Utiliser Amazon Polly Neural pour une meilleure qualité
+                gather.say(ai_response, language="fr-FR", voice="Polly.Lea-Neural")
+            else:
+                gather.say(ai_response, language="fr-FR", voice="Polly.Celine")
             
             # Ne pas ajouter de question supplémentaire si Neo demande déjà des infos
             if not any(word in ai_response.lower() for word in ["nom", "prénom", "téléphone", "email", "coordonnées"]):
@@ -594,15 +598,16 @@ STYLE :
 
 Tu es EN COURS de conversation avec le client."""
         
-        # Appel à l'API OpenAI GPT-4 (ancienne syntaxe)
+        # Appel à l'API OpenAI GPT-4 avec optimisations latence
         response = openai.ChatCompletion.create(
             model="gpt-4",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"Message de l'appelant : {transcript}"}
             ],
-            max_tokens=150,
-            temperature=0.7
+            max_tokens=100,  # Réduit pour des réponses plus rapides
+            temperature=0.5,  # Réduit pour plus de consistance et rapidité
+            stream=False
         )
         
         ai_response = response.choices[0].message.content.strip()
@@ -618,7 +623,7 @@ Tu es EN COURS de conversation avec le client."""
         return f"Merci pour votre appel. L'équipe de {hotel_name} a bien reçu votre message et vous rappellera dans les plus brefs délais."
 
 def generate_elevenlabs_audio(text, hotel_config=None):
-    """Génère l'audio avec ElevenLabs selon la config de l'hôtel"""
+    """Génère l'audio avec ElevenLabs - VERSION TEMPS RÉEL"""
     try:
         if not hotel_config:
             hotel_config = get_default_hotel_config()
@@ -636,9 +641,9 @@ def generate_elevenlabs_audio(text, hotel_config=None):
         genre = hotel_config.get('voix_genre', 'femme').lower()
         voice_id = voice_mapping.get((langue, genre), 'g5CIjZEefAph4nQFvHAz')
         
-        logging.info(f"🎤 Voix sélectionnée: {langue}/{genre} pour {hotel_config['voix_prenom']}")
+        logging.info(f"🎤 Voix ElevenLabs sélectionnée: {langue}/{genre} - {voice_id}")
         
-        url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream"
         
         headers = {
             "Accept": "audio/mpeg",
@@ -648,28 +653,31 @@ def generate_elevenlabs_audio(text, hotel_config=None):
         
         data = {
             "text": text,
-            "model_id": "eleven_flash_v2_5",  # Modèle multilingue 32 langues
+            "model_id": "eleven_flash_v2_5",
             "voice_settings": {
                 "stability": 0.5,
                 "similarity_boost": 0.75,
                 "style": 0.5,
                 "use_speaker_boost": True
-            }
+            },
+            "output_format": "mp3_44100_128"
         }
         
-        response = requests.post(url, json=data, headers=headers, timeout=30)
+        response = requests.post(url, json=data, headers=headers, timeout=15, stream=True)
         
         if response.status_code == 200:
-            # Sauvegarde temporaire du fichier audio
+            # Sauvegarder temporairement
             filename = f"/tmp/{hotel_config['voix_prenom'].lower()}_audio_{uuid.uuid4()}.mp3"
             with open(filename, "wb") as f:
-                f.write(response.content)
+                for chunk in response.iter_content(chunk_size=1024):
+                    if chunk:
+                        f.write(chunk)
             
-            logging.info(f"✅ Audio {hotel_config['voix_prenom']} (Neo) ElevenLabs généré: {filename}")
+            logging.info(f"✅ Audio ElevenLabs généré: {filename}")
             
-            # TODO: Upload vers un service de stockage public pour retourner l'URL
-            # Pour l'instant, retourne None pour utiliser le fallback Twilio
-            return None
+            # Upload vers un service temporaire ou retourner pour Twilio
+            # Pour l'instant, on va modifier l'approche...
+            return filename  # On retourne le chemin local pour l'instant
             
         else:
             logging.error(f"❌ Erreur ElevenLabs: {response.status_code}")
