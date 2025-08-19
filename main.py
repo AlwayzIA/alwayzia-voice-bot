@@ -305,7 +305,7 @@ def transcribe_with_deepgram(wav_url):
             logging.error(f"❌ Fichier audio trop petit: {len(audio_data)} bytes")
             return None
         
-        # Configuration pour la transcription en français
+        # Configuration pour la transcription en français avec format Twilio
         options = PrerecordedOptions(
             model="nova-2",
             language="fr",
@@ -317,8 +317,8 @@ def transcribe_with_deepgram(wav_url):
             sample_rate=8000   # Important: Twilio utilise 8000Hz
         )
         
-        # Transcription avec les données audio téléchargées
-        source: FileSource = {"buffer": audio_data, "mimetype": "audio/wav"}
+        # Transcription avec les données audio téléchargées (format mulaw)
+        source: FileSource = {"buffer": audio_data, "mimetype": "audio/mulaw"}
         
         response = deepgram.listen.prerecorded.v("1").transcribe_file(source, options)
         
