@@ -232,6 +232,11 @@ def process_recording():
         logging.info("🎤 Neo transcrit avec AssemblyAI...")
         transcript = transcribe_with_assemblyai(wav_url)
         
+        # Essai avec OpenAI Whisper en fallback
+        if not transcript:
+            logging.info("🎤 Fallback: Neo essaie OpenAI Whisper...")
+            transcript = transcribe_with_whisper(wav_url)
+        
         if not transcript:
             logging.error("❌ Échec de la transcription")
             response = VoiceResponse()
@@ -356,7 +361,7 @@ def transcribe_with_assemblyai(wav_url):
         return None
 
 def upload_to_assemblyai(wav_url):
-    """Upload le fichier audio vers AssemblyAI avec conversion de format"""
+    """Upload le fichier audio vers AssemblyAI - méthode simplifiée"""
     try:
         # Télécharger l'audio depuis Twilio
         audio_response = requests.get(
@@ -372,53 +377,20 @@ def upload_to_assemblyai(wav_url):
         audio_data = audio_response.content
         logging.info(f"✅ Audio téléchargé pour AssemblyAI: {len(audio_data)} bytes")
         
-        # Convertir le format Twilio vers un format standard WAV
-        try:
-            import io
-            import wave
-            
-            # Créer un fichier WAV standard à partir des données Twilio
-            # Twilio utilise µ-law (8000 Hz, 8-bit, mono)
-            
-            # Paramètres audio Twilio
-            sample_rate = 8000
-            sample_width = 1  # 8-bit
-            channels = 1      # mono
-            
-            # Créer un buffer pour le fichier WAV
-            wav_buffer = io.BytesIO()
-            
-            with wave.open(wav_buffer, 'wb') as wav_file:
-                wav_file.setnchannels(channels)
-                wav_file.setsampwidth(sample_width)
-                wav_file.setframerate(sample_rate)
-                wav_file.writeframes(audio_data)
-            
-            # Récupérer les données WAV formatées
-            wav_buffer.seek(0)
-            formatted_audio = wav_buffer.getvalue()
-            
-            logging.info(f"✅ Audio converti en WAV: {len(formatted_audio)} bytes")
-            
-        except Exception as conv_error:
-            logging.warning(f"⚠️ Conversion WAV échouée: {conv_error}, envoi direct...")
-            formatted_audio = audio_data
-        
-        # Upload vers AssemblyAI avec le bon Content-Type
+        # Upload direct vers AssemblyAI avec headers corrects
         headers = {
-            "authorization": ASSEMBLYAI_API_KEY,
-            "content-type": "application/octet-stream"
+            "authorization": ASSEMBLYAI_API_KEY
         }
         
-        # Utiliser files avec le bon mimetype
+        # Upload avec le bon format de fichier
         files = {
-            "file": ("audio.wav", formatted_audio, "audio/wav")
+            "file": ("recording.wav", audio_data, "audio/wav")
         }
         
         upload_response = requests.post(
             "https://api.assemblyai.com/v2/upload",
             files=files,
-            headers={"authorization": ASSEMBLYAI_API_KEY},
+            headers=headers,
             timeout=60
         )
         
@@ -433,6 +405,55 @@ def upload_to_assemblyai(wav_url):
         
     except Exception as e:
         logging.error(f"❌ Erreur upload AssemblyAI: {str(e)}")
+        return None
+
+def transcribe_with_whisper(wav_url):
+    """Fallback avec OpenAI Whisper si AssemblyAI échoue"""
+    try:
+        logging.info("🔄 Tentative avec OpenAI Whisper...")
+        
+        # Télécharger l'audio depuis Twilio
+        audio_response = requests.get(
+            wav_url,
+            auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN),
+            timeout=30
+        )
+        
+        if audio_response.status_code != 200:
+            logging.error(f"❌ Erreur téléchargement pour Whisper: {audio_response.status_code}")
+            return None
+        
+        audio_data = audio_response.content
+        logging.info(f"✅ Audio téléchargé pour Whisper: {len(audio_data)} bytes")
+        
+        # Sauvegarder temporairement
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
+            temp_file.write(audio_data)
+            temp_path = temp_file.name
+        
+        # Transcription avec OpenAI Whisper
+        with open(temp_path, "rb") as audio_file:
+            transcript_response = openai.Audio.transcribe(
+                model="whisper-1",
+                file=audio_file,
+                language="fr"
+            )
+        
+        # Nettoyage
+        import os
+        os.unlink(temp_path)
+        
+        transcript = transcript_response.get("text", "").strip()
+        if transcript:
+            logging.info(f"✅ Transcription Whisper réussie: {transcript}")
+            return transcript
+        else:
+            logging.warning("⚠️ Transcription Whisper vide")
+            return None
+            
+    except Exception as e:
+        logging.error(f"❌ Erreur Whisper: {str(e)}")
         return None
 
 def generate_gpt4_response(transcript, caller_number="", hotel_config=None):
