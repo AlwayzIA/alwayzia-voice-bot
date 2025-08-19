@@ -209,30 +209,42 @@ def conversation():
             
             logging.info(f"💭 Réponse Neo: {ai_response}")
             
-            # CONTINUER LA CONVERSATION
+            # Déterminer le timeout selon le contexte de la réponse
+            if any(word in ai_response.lower() for word in ["nom", "prénom", "téléphone", "email", "coordonnées", "rappel"]):
+                # Si Neo demande des coordonnées, laisser plus de temps (30s)
+                timeout_duration = 30
+                logging.info("⏰ Timeout étendu (30s) pour collecter les coordonnées")
+            else:
+                # Conversation normale (15s)
+                timeout_duration = 15
+            
+            # CONTINUER LA CONVERSATION avec timeout adaptatif
             gather = response.gather(
                 input="speech",
                 language="fr-FR", 
                 speech_timeout="auto",
-                timeout=10,
+                timeout=timeout_duration,  # Timeout adaptatif !
                 action="/conversation",
                 method="POST"
             )
             
             # Répondre ET continuer à écouter
             gather.say(ai_response, language="fr-FR", voice="Polly.Celine")
-            gather.say("Y a-t-il autre chose que je puisse faire pour vous ?", language="fr-FR", voice="Polly.Celine")
             
-            # Si pas de réponse
+            # Ne pas ajouter de question supplémentaire si Neo demande déjà des infos
+            if not any(word in ai_response.lower() for word in ["nom", "prénom", "téléphone", "email", "coordonnées"]):
+                gather.say("Y a-t-il autre chose que je puisse faire pour vous ?", language="fr-FR", voice="Polly.Celine")
+            
+            # Si pas de réponse après le timeout
             response.say("Merci infiniment pour votre appel. Très belle journée à vous !", language="fr-FR", voice="Polly.Celine")
             
         else:
-            # Pas compris, redemander
+            # Pas compris, redemander avec timeout normal
             gather = response.gather(
                 input="speech",
                 language="fr-FR",
                 speech_timeout="auto", 
-                timeout=8,
+                timeout=12,
                 action="/conversation",
                 method="POST"
             )
