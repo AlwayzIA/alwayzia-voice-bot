@@ -437,7 +437,8 @@ def transcribe_with_whisper(wav_url):
             transcript_response = openai.Audio.transcribe(
                 model="whisper-1",
                 file=audio_file,
-                language="fr"
+                language="fr",
+                prompt="Transcription d'un appel téléphonique en français pour un hôtel"  # Guide Whisper
             )
         
         # Nettoyage
