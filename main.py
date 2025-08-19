@@ -550,9 +550,6 @@ if __name__ == "__main__":
     logging.info("📞 Twilio pour la téléphonie")
     logging.info("📡 Neo est prêt à recevoir les appels pour l'Hôtel Beau-Rivage...")
     
-    # Démarrage de l'application
-    app.run(
-        host="0.0.0.0", 
-        port=PORT, 
-        debug=False  # Mettre True pour le debug en développement
-    )
+    # Configuration du port pour développement local uniquement
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port, debug=False)
