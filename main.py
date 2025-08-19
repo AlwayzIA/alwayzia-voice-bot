@@ -6,7 +6,6 @@ import uuid
 import json
 from flask import Flask, request, jsonify
 from twilio.twiml.voice_response import VoiceResponse
-from deepgram import DeepgramClient, PrerecordedOptions, FileSource
 import openai
 from dotenv import load_dotenv
 import gspread
@@ -19,7 +18,7 @@ load_dotenv()
 # Clés API et variables d'environnement
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
-DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
+ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
@@ -27,8 +26,6 @@ GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
 PORT = int(os.getenv("PORT", 8080))
 
 # Initialisation des clients externes
-deepgram = DeepgramClient(DEEPGRAM_API_KEY)
-
 # Configuration OpenAI (ancienne syntaxe stable)
 openai.api_key = OPENAI_API_KEY
 
@@ -96,7 +93,7 @@ def home():
         "agent": "Neo",
         "company": "AlwayzIA",
         "services": {
-            "transcription": "Deepgram",
+            "transcription": "AssemblyAI",
             "ai": "OpenAI GPT-4",
             "voice": "ElevenLabs",
             "telephony": "Twilio"
@@ -122,7 +119,7 @@ def status():
             "twilio": bool(TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN),
             "openai": bool(OPENAI_API_KEY),
             "elevenlabs": bool(ELEVENLABS_API_KEY),
-            "deepgram": bool(DEEPGRAM_API_KEY)
+            "assemblyai": bool(ASSEMBLYAI_API_KEY)
         }
     })
 
@@ -231,9 +228,9 @@ def process_recording():
         
         logging.info(f"🎯 URL audio à transcrire: {wav_url}")
         
-        # Transcription avec Deepgram (avec téléchargement et auth Twilio)
-        logging.info("🎤 Neo transcrit avec Deepgram...")
-        transcript = transcribe_with_deepgram(wav_url)
+        # Transcription avec AssemblyAI (plus fiable avec Twilio)
+        logging.info("🎤 Neo transcrit avec AssemblyAI...")
+        transcript = transcribe_with_assemblyai(wav_url)
         
         if not transcript:
             logging.error("❌ Échec de la transcription")
@@ -274,102 +271,129 @@ def process_recording():
         )
         return str(response)
 
-def transcribe_with_deepgram(wav_url):
-    """Transcrit l'audio avec Deepgram depuis une URL avec authentification Twilio"""
+def transcribe_with_assemblyai(wav_url):
+    """Transcrit l'audio avec AssemblyAI - Optimisé pour Twilio"""
     try:
-        # Attendre quelques secondes que l'enregistrement soit disponible
+        # Attendre que l'enregistrement soit disponible
         import time
         time.sleep(3)
         
-        # Téléchargement du fichier audio avec authentification Twilio
-        logging.info(f"🔗 Téléchargement depuis: {wav_url}")
+        logging.info(f"🔗 Transcription AssemblyAI depuis: {wav_url}")
         
-        response = requests.get(
+        # Étape 1: Upload du fichier audio vers AssemblyAI
+        upload_url = upload_to_assemblyai(wav_url)
+        if not upload_url:
+            return None
+        
+        # Étape 2: Demande de transcription
+        transcript_request = {
+            "audio_url": upload_url,
+            "language_code": "fr",  # Français
+            "punctuate": True,
+            "format_text": True
+        }
+        
+        headers = {
+            "authorization": ASSEMBLYAI_API_KEY,
+            "content-type": "application/json"
+        }
+        
+        # Lancer la transcription
+        response = requests.post(
+            "https://api.assemblyai.com/v2/transcript",
+            json=transcript_request,
+            headers=headers,
+            timeout=30
+        )
+        
+        if response.status_code != 200:
+            logging.error(f"❌ Erreur AssemblyAI request: {response.status_code}")
+            return None
+        
+        transcript_id = response.json()["id"]
+        logging.info(f"🎯 AssemblyAI transcript ID: {transcript_id}")
+        
+        # Étape 3: Attendre et récupérer le résultat
+        max_attempts = 30
+        for attempt in range(max_attempts):
+            result_response = requests.get(
+                f"https://api.assemblyai.com/v2/transcript/{transcript_id}",
+                headers=headers,
+                timeout=30
+            )
+            
+            if result_response.status_code != 200:
+                logging.error(f"❌ Erreur AssemblyAI result: {result_response.status_code}")
+                return None
+            
+            result = result_response.json()
+            status = result["status"]
+            
+            logging.info(f"📊 AssemblyAI status: {status}")
+            
+            if status == "completed":
+                transcript = result.get("text", "").strip()
+                if transcript:
+                    logging.info(f"✅ Transcription AssemblyAI réussie: {transcript}")
+                    return transcript
+                else:
+                    logging.warning("⚠️ Transcription AssemblyAI vide")
+                    return None
+                    
+            elif status == "error":
+                error_msg = result.get("error", "Erreur inconnue")
+                logging.error(f"❌ Erreur AssemblyAI: {error_msg}")
+                return None
+                
+            # Attendre 2 secondes avant le prochain check
+            time.sleep(2)
+        
+        logging.error("❌ AssemblyAI timeout - transcription trop longue")
+        return None
+            
+    except Exception as e:
+        logging.error(f"❌ Erreur AssemblyAI globale: {str(e)}")
+        return None
+
+def upload_to_assemblyai(wav_url):
+    """Upload le fichier audio vers AssemblyAI"""
+    try:
+        # Télécharger l'audio depuis Twilio
+        audio_response = requests.get(
             wav_url,
             auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN),
             timeout=30
         )
         
-        logging.info(f"📡 Status téléchargement: {response.status_code}")
-        
-        if response.status_code != 200:
-            logging.error(f"❌ Erreur téléchargement: {response.status_code}")
-            logging.error(f"❌ Contenu réponse: {response.text[:200]}")
+        if audio_response.status_code != 200:
+            logging.error(f"❌ Erreur téléchargement Twilio: {audio_response.status_code}")
             return None
         
-        audio_data = response.content
-        logging.info(f"✅ Audio téléchargé: {len(audio_data)} bytes")
+        audio_data = audio_response.content
+        logging.info(f"✅ Audio téléchargé pour AssemblyAI: {len(audio_data)} bytes")
         
-        # Vérification que nous avons bien des données audio
-        if len(audio_data) < 1000:  # Fichier audio trop petit
-            logging.error(f"❌ Fichier audio trop petit: {len(audio_data)} bytes")
+        # Upload vers AssemblyAI
+        headers = {
+            "authorization": ASSEMBLYAI_API_KEY
+        }
+        
+        upload_response = requests.post(
+            "https://api.assemblyai.com/v2/upload",
+            files={"file": audio_data},
+            headers=headers,
+            timeout=60
+        )
+        
+        if upload_response.status_code != 200:
+            logging.error(f"❌ Erreur upload AssemblyAI: {upload_response.status_code}")
             return None
         
-        # Essai avec transcribe_url directement (méthode plus simple)
-        try:
-            logging.info("🎯 Tentative transcription URL directe...")
-            
-            # Configuration pour URL directe
-            options = PrerecordedOptions(
-                model="nova-2",
-                language="fr",
-                smart_format=True,
-                punctuate=True
-            )
-            
-            # Source URL avec authentification dans l'en-tête
-            import base64
-            auth_string = base64.b64encode(f"{TWILIO_ACCOUNT_SID}:{TWILIO_AUTH_TOKEN}".encode()).decode()
-            
-            # Utilisation de l'URL directe
-            source = {"url": wav_url}
-            
-            response = deepgram.listen.prerecorded.v("1").transcribe_url(source, options)
-            
-            transcript = response["results"]["channels"][0]["alternatives"][0]["transcript"]
-            
-            if transcript and transcript.strip():
-                logging.info(f"✅ Transcription URL réussie: {transcript}")
-                return transcript.strip()
-            else:
-                logging.warning("⚠️ Transcription URL vide, essai avec buffer...")
+        upload_url = upload_response.json()["upload_url"]
+        logging.info(f"✅ Upload AssemblyAI réussi: {upload_url}")
+        return upload_url
         
-        except Exception as e:
-            logging.warning(f"⚠️ Transcription URL échouée: {str(e)}, essai avec buffer...")
-        
-        # Fallback: essai avec buffer et différents formats
-        try:
-            logging.info("🎯 Tentative transcription buffer...")
-            
-            options = PrerecordedOptions(
-                model="nova-2",
-                language="fr",
-                smart_format=True,
-                punctuate=True,
-                encoding="linear16",  # Format plus standard
-                sample_rate=8000
-            )
-            
-            # Essai avec mimetype générique
-            source: FileSource = {"buffer": audio_data, "mimetype": "audio/wav"}
-            
-            response = deepgram.listen.prerecorded.v("1").transcribe_file(source, options)
-            
-            transcript = response["results"]["channels"][0]["alternatives"][0]["transcript"]
-            
-            if transcript and transcript.strip():
-                logging.info(f"✅ Transcription buffer réussie: {transcript}")
-                return transcript.strip()
-            else:
-                logging.warning("⚠️ Transcription buffer vide")
-                return None
-                
-        except Exception as e:
-            logging.error(f"❌ Erreur transcription buffer: {str(e)}")
-            return None
-            
     except Exception as e:
-        logging.error(f"❌ Erreur Deepgram globale: {str(e)}")
+        logging.error(f"❌ Erreur upload AssemblyAI: {str(e)}")
         return None
 
 def generate_gpt4_response(transcript, caller_number="", hotel_config=None):
@@ -511,21 +535,28 @@ def test():
         "twilio_token": "✅ Configuré" if TWILIO_AUTH_TOKEN else "❌ Manquant", 
         "openai_key": "✅ Configuré" if OPENAI_API_KEY else "❌ Manquant",
         "elevenlabs_key": "✅ Configuré" if ELEVENLABS_API_KEY else "❌ Manquant",
-        "deepgram_key": "✅ Configuré" if DEEPGRAM_API_KEY else "❌ Manquant"
+        "assemblyai_key": "✅ Configuré" if ASSEMBLYAI_API_KEY else "❌ Manquant"
     }
     
     # Test rapide des APIs
     test_results = {}
     
-    # Test Deepgram
+    # Test AssemblyAI
     try:
-        if DEEPGRAM_API_KEY:
-            test_deepgram = DeepgramClient(DEEPGRAM_API_KEY)
-            test_results["deepgram"] = "✅ Connexion OK"
+        if ASSEMBLYAI_API_KEY:
+            test_response = requests.get(
+                "https://api.assemblyai.com/v2/transcript",
+                headers={"authorization": ASSEMBLYAI_API_KEY},
+                timeout=10
+            )
+            if test_response.status_code in [200, 401]:  # 401 = clé valide mais pas d'auth pour cette route
+                test_results["assemblyai"] = "✅ Connexion OK"
+            else:
+                test_results["assemblyai"] = "⚠️ Erreur de connexion"
         else:
-            test_results["deepgram"] = "❌ Clé manquante"
+            test_results["assemblyai"] = "❌ Clé manquante"
     except:
-        test_results["deepgram"] = "⚠️ Erreur de connexion"
+        test_results["assemblyai"] = "⚠️ Erreur de connexion"
     
     # Test OpenAI
     try:
@@ -544,7 +575,7 @@ def test():
         "configuration": config_status,
         "connectivity_tests": test_results,
         "webhook_url": f"{request.host_url}voice",
-        "ready_for_calls": all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, OPENAI_API_KEY, DEEPGRAM_API_KEY])
+        "ready_for_calls": all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, OPENAI_API_KEY, ASSEMBLYAI_API_KEY])
     })
 
 @app.route("/demo", methods=["POST"])
@@ -581,7 +612,7 @@ if __name__ == "__main__":
     logging.info("🏢 Société: AlwayzIA")
     logging.info("📋 Prompt: v1.2 (06.06.2025) - Maxime Maadoune Meloni")
     logging.info("🧠 GPT-4 pour l'intelligence artificielle")
-    logging.info("🎤 Deepgram pour la transcription")
+    logging.info("🎤 AssemblyAI pour la transcription")
     logging.info("🔊 ElevenLabs Flash v2.5 pour la synthèse vocale")
     logging.info("📞 Twilio pour la téléphonie")
     logging.info("📡 Neo est prêt à recevoir les appels pour l'Hôtel Beau-Rivage...")
