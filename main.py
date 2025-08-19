@@ -356,7 +356,7 @@ def transcribe_with_assemblyai(wav_url):
         return None
 
 def upload_to_assemblyai(wav_url):
-    """Upload le fichier audio vers AssemblyAI"""
+    """Upload le fichier audio vers AssemblyAI avec conversion de format"""
     try:
         # Télécharger l'audio depuis Twilio
         audio_response = requests.get(
@@ -372,20 +372,59 @@ def upload_to_assemblyai(wav_url):
         audio_data = audio_response.content
         logging.info(f"✅ Audio téléchargé pour AssemblyAI: {len(audio_data)} bytes")
         
-        # Upload vers AssemblyAI
+        # Convertir le format Twilio vers un format standard WAV
+        try:
+            import io
+            import wave
+            
+            # Créer un fichier WAV standard à partir des données Twilio
+            # Twilio utilise µ-law (8000 Hz, 8-bit, mono)
+            
+            # Paramètres audio Twilio
+            sample_rate = 8000
+            sample_width = 1  # 8-bit
+            channels = 1      # mono
+            
+            # Créer un buffer pour le fichier WAV
+            wav_buffer = io.BytesIO()
+            
+            with wave.open(wav_buffer, 'wb') as wav_file:
+                wav_file.setnchannels(channels)
+                wav_file.setsampwidth(sample_width)
+                wav_file.setframerate(sample_rate)
+                wav_file.writeframes(audio_data)
+            
+            # Récupérer les données WAV formatées
+            wav_buffer.seek(0)
+            formatted_audio = wav_buffer.getvalue()
+            
+            logging.info(f"✅ Audio converti en WAV: {len(formatted_audio)} bytes")
+            
+        except Exception as conv_error:
+            logging.warning(f"⚠️ Conversion WAV échouée: {conv_error}, envoi direct...")
+            formatted_audio = audio_data
+        
+        # Upload vers AssemblyAI avec le bon Content-Type
         headers = {
-            "authorization": ASSEMBLYAI_API_KEY
+            "authorization": ASSEMBLYAI_API_KEY,
+            "content-type": "application/octet-stream"
+        }
+        
+        # Utiliser files avec le bon mimetype
+        files = {
+            "file": ("audio.wav", formatted_audio, "audio/wav")
         }
         
         upload_response = requests.post(
             "https://api.assemblyai.com/v2/upload",
-            files={"file": audio_data},
-            headers=headers,
+            files=files,
+            headers={"authorization": ASSEMBLYAI_API_KEY},
             timeout=60
         )
         
         if upload_response.status_code != 200:
             logging.error(f"❌ Erreur upload AssemblyAI: {upload_response.status_code}")
+            logging.error(f"❌ Réponse: {upload_response.text}")
             return None
         
         upload_url = upload_response.json()["upload_url"]
