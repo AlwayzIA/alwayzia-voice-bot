@@ -305,35 +305,71 @@ def transcribe_with_deepgram(wav_url):
             logging.error(f"❌ Fichier audio trop petit: {len(audio_data)} bytes")
             return None
         
-        # Configuration pour la transcription en français avec format Twilio
-        options = PrerecordedOptions(
-            model="nova-2",
-            language="fr",
-            smart_format=True,
-            punctuate=True,
-            paragraphs=True,
-            utterances=True,
-            encoding="mulaw",  # Important: Twilio utilise mulaw
-            sample_rate=8000   # Important: Twilio utilise 8000Hz
-        )
+        # Essai avec transcribe_url directement (méthode plus simple)
+        try:
+            logging.info("🎯 Tentative transcription URL directe...")
+            
+            # Configuration pour URL directe
+            options = PrerecordedOptions(
+                model="nova-2",
+                language="fr",
+                smart_format=True,
+                punctuate=True
+            )
+            
+            # Source URL avec authentification dans l'en-tête
+            import base64
+            auth_string = base64.b64encode(f"{TWILIO_ACCOUNT_SID}:{TWILIO_AUTH_TOKEN}".encode()).decode()
+            
+            # Utilisation de l'URL directe
+            source = {"url": wav_url}
+            
+            response = deepgram.listen.prerecorded.v("1").transcribe_url(source, options)
+            
+            transcript = response["results"]["channels"][0]["alternatives"][0]["transcript"]
+            
+            if transcript and transcript.strip():
+                logging.info(f"✅ Transcription URL réussie: {transcript}")
+                return transcript.strip()
+            else:
+                logging.warning("⚠️ Transcription URL vide, essai avec buffer...")
         
-        # Transcription avec les données audio téléchargées (format mulaw)
-        source: FileSource = {"buffer": audio_data, "mimetype": "audio/mulaw"}
+        except Exception as e:
+            logging.warning(f"⚠️ Transcription URL échouée: {str(e)}, essai avec buffer...")
         
-        response = deepgram.listen.prerecorded.v("1").transcribe_file(source, options)
-        
-        # Extraction du texte
-        transcript = response["results"]["channels"][0]["alternatives"][0]["transcript"]
-        
-        if transcript and transcript.strip():
-            logging.info(f"✅ Transcription réussie: {transcript}")
-            return transcript.strip()
-        else:
-            logging.warning("⚠️ Transcription vide")
+        # Fallback: essai avec buffer et différents formats
+        try:
+            logging.info("🎯 Tentative transcription buffer...")
+            
+            options = PrerecordedOptions(
+                model="nova-2",
+                language="fr",
+                smart_format=True,
+                punctuate=True,
+                encoding="linear16",  # Format plus standard
+                sample_rate=8000
+            )
+            
+            # Essai avec mimetype générique
+            source: FileSource = {"buffer": audio_data, "mimetype": "audio/wav"}
+            
+            response = deepgram.listen.prerecorded.v("1").transcribe_file(source, options)
+            
+            transcript = response["results"]["channels"][0]["alternatives"][0]["transcript"]
+            
+            if transcript and transcript.strip():
+                logging.info(f"✅ Transcription buffer réussie: {transcript}")
+                return transcript.strip()
+            else:
+                logging.warning("⚠️ Transcription buffer vide")
+                return None
+                
+        except Exception as e:
+            logging.error(f"❌ Erreur transcription buffer: {str(e)}")
             return None
             
     except Exception as e:
-        logging.error(f"❌ Erreur Deepgram: {str(e)}")
+        logging.error(f"❌ Erreur Deepgram globale: {str(e)}")
         return None
 
 def generate_gpt4_response(transcript, caller_number="", hotel_config=None):
