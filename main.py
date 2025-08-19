@@ -125,7 +125,7 @@ def status():
 
 @app.route("/voice", methods=["POST"])
 def voice():
-    """Webhook principal pour recevoir les appels Twilio"""
+    """Webhook principal pour recevoir les appels Twilio - CONVERSATION INTERACTIVE"""
     try:
         logging.info("📞 Nouvel appel reçu sur le webhook Neo")
         
@@ -143,7 +143,7 @@ def voice():
         logging.info(f"🏨 Hôtel détecté: {hotel_config['nom_hotel']}")
         logging.info(f"🎭 Voix: {hotel_config['voix_prenom']} ({hotel_config['voix_genre']})")
         
-        # Création de la réponse TwiML
+        # Création de la réponse TwiML pour CONVERSATION
         response = VoiceResponse()
         
         # Message d'accueil dynamique selon la config de l'hôtel
@@ -151,29 +151,28 @@ def voice():
         current_hour = datetime.datetime.now().hour
         
         if 6 <= current_hour <= 17:
-            welcome_message = f"Bonjour et bienvenue au {hotel_config['nom_hotel']}. {hotel_config['voix_prenom']} à votre service, que puis-je faire pour vous aujourd'hui ?"
+            welcome_message = f"Bonjour et bienvenue au {hotel_config['nom_hotel']}. {hotel_config['voix_prenom']} à votre service, comment puis-je vous aider aujourd'hui ?"
         else:
-            welcome_message = f"Bonsoir et bienvenue au {hotel_config['nom_hotel']}. {hotel_config['voix_prenom']} à votre service, que puis-je faire pour vous ce soir ?"
+            welcome_message = f"Bonsoir et bienvenue au {hotel_config['nom_hotel']}. {hotel_config['voix_prenom']} à votre service, comment puis-je vous aider ce soir ?"
         
-        # Message d'accueil avec Twilio TTS
-        response.say(welcome_message, language="fr-FR", voice="Polly.Celine")
-        
-        # Enregistrement du message
-        response.record(
-            max_length=60,  # 1 minute max
-            finish_on_key="#",
-            play_beep=True,
-            timeout=5,
-            transcribe=False,
-            action="/process_recording",
+        # CONVERSATION INTERACTIVE avec Gather (SANS BIP !)
+        gather = response.gather(
+            input="speech",
+            language="fr-FR",
+            speech_timeout="auto",
+            timeout=10,
+            action="/conversation",
             method="POST"
         )
         
-        # Message de fallback si pas d'enregistrement
-        fallback_msg = "Je n'ai pas reçu votre message. Merci de rappeler ou d'appuyer sur dièse pour terminer votre appel."
-        response.say(fallback_msg, language="fr-FR", voice="Polly.Celine")
+        # Message d'accueil dans le Gather
+        gather.say(welcome_message, language="fr-FR", voice="Polly.Celine")
         
-        logging.info("✅ Réponse TwiML générée - Neo")
+        # Si pas de réponse après timeout
+        response.say("Je n'ai pas bien entendu. Pouvez-vous répéter s'il vous plaît ?", language="fr-FR", voice="Polly.Celine")
+        response.redirect("/voice")  # Recommencer
+        
+        logging.info("✅ Réponse TwiML CONVERSATION générée - Neo")
         return str(response)
         
     except Exception as e:
@@ -186,7 +185,70 @@ def voice():
         )
         return str(response)
 
-@app.route("/process_recording", methods=["POST"])
+@app.route("/conversation", methods=["POST"])
+def conversation():
+    """Gère la conversation interactive avec le client"""
+    try:
+        # Récupération de ce que le client a dit
+        speech_result = request.form.get("SpeechResult", "")
+        confidence = request.form.get("Confidence", "0")
+        caller_number = request.form.get("From", "Numéro inconnu")
+        called_number = request.form.get("To", "")
+        
+        logging.info(f"🎤 Client a dit: '{speech_result}' (confiance: {confidence})")
+        
+        # Récupération de la configuration de l'hôtel
+        hotel_config = get_hotel_config(called_number)
+        
+        response = VoiceResponse()
+        
+        if speech_result and len(speech_result.strip()) > 2:
+            # Génération de réponse avec GPT-4
+            logging.info("🤖 Neo génère une réponse avec GPT-4...")
+            ai_response = generate_gpt4_response(speech_result, caller_number, hotel_config)
+            
+            logging.info(f"💭 Réponse Neo: {ai_response}")
+            
+            # CONTINUER LA CONVERSATION
+            gather = response.gather(
+                input="speech",
+                language="fr-FR", 
+                speech_timeout="auto",
+                timeout=10,
+                action="/conversation",
+                method="POST"
+            )
+            
+            # Répondre ET continuer à écouter
+            gather.say(ai_response, language="fr-FR", voice="Polly.Celine")
+            gather.say("Y a-t-il autre chose que je puisse faire pour vous ?", language="fr-FR", voice="Polly.Celine")
+            
+            # Si pas de réponse
+            response.say("Merci infiniment pour votre appel. Très belle journée à vous !", language="fr-FR", voice="Polly.Celine")
+            
+        else:
+            # Pas compris, redemander
+            gather = response.gather(
+                input="speech",
+                language="fr-FR",
+                speech_timeout="auto", 
+                timeout=8,
+                action="/conversation",
+                method="POST"
+            )
+            
+            gather.say("Je n'ai pas bien saisi votre demande. Pouvez-vous reformuler s'il vous plaît ?", language="fr-FR", voice="Polly.Celine")
+            
+            # Fin après 2 échecs
+            response.say("Je vous remercie pour votre appel. Au revoir !", language="fr-FR", voice="Polly.Celine")
+        
+        return str(response)
+        
+    except Exception as e:
+        logging.error(f"❌ Erreur conversation: {str(e)}")
+        response = VoiceResponse()
+        response.say("Désolé, j'ai un problème technique. Au revoir !", language="fr-FR", voice="Polly.Celine")
+        return str(response)
 def process_recording():
     """Récupère l'enregistrement, le transcrit avec Deepgram, puis le traite avec OpenAI"""
     try:
