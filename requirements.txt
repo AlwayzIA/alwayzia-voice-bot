@@ -5,5 +5,5 @@ python-dotenv==1.0.0
 requests==2.31.0
 gunicorn==22.0.0
 gspread==5.12.0
-google-auth==2.23.4
+google-auth==2.40.3
 assemblyai==0.17.0
