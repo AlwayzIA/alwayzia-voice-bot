@@ -1,0 +1,15 @@
+version: 2
+updates:
+  # Surveille les dépendances Python
+  - package-ecosystem: "pip"
+    directory: "/" # ton requirements.txt est à la racine
+    schedule:
+      interval: "weekly" # vérifie chaque semaine
+    open-pull-requests-limit: 5
+    rebase-strategy: "auto"
+
+  # Surveille aussi GitHub Actions (si tu en utilises un jour)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
